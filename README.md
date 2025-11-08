@@ -1,2 +1,0 @@
-# AI Wellness companion
-
