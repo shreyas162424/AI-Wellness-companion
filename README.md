@@ -168,9 +168,12 @@ The frontend fetches data from Flask API endpoints configured in `.env.local`.
 
 - 🧭 **Dashboard:** Emotion-driven chart with animation  
 - 💬 **Suggestion Panel:** AI-generated recommendations with icons and YouTube embeds  
-- 🪷 **Mood Cards:** Dynamic visuals that reflect emotional tone  
-https://github.com/user-attachments/assets/3ca8b197-2fbb-49ad-9b56-2d1f95eab6ff
-> *(Add screenshots or screen recordings before publishing!)*  
+- 🪷 **Mood Cards:** Dynamic visuals that reflect emotional tone
+  
+-
+
+
+> *( [![Video](https://github.com/user-attachments/assets/3ca8b197-2fbb-49ad-9b56-2d1f95eab6ff))*  
 
 ---
 
