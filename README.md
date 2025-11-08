@@ -222,7 +222,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 | Name | Role |
 |------|------|
 | **Shreyas Sangalad** | Project Lead, Full-Stack Developer, AI Model Integration |
-| **OpenAI GPT-5** | Documentation & Optimization Support |
+
 
 ---
 
