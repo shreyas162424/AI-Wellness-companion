@@ -1,0 +1,30 @@
+# -------------------------
+# Smart Health Companion - Backend Dependencies
+# Render-ready CPU optimized build
+# -------------------------
+
+# --- Core Framework ---
+Flask==2.3.3
+Flask-CORS==4.0.0
+gunicorn==21.2.0
+
+# --- AI / ML ---
+torch==2.0.1+cpu      # CPU-only version to avoid CUDA install
+torchaudio==2.0.2
+transformers==4.33.2
+
+# --- Audio/Signal Processing ---
+librosa==0.10.0
+soundfile==0.12.1
+scipy==1.11.3
+numpy==1.24.3
+
+# --- Computer Vision ---
+opencv-python-headless==4.8.1.78  # 'headless' avoids GUI errors on Render
+Pillow==10.0.1
+
+# --- Model Inference (YOLO or custom models) ---
+ultralytics==8.0.196
+
+# --- Utilities ---
+requests==2.31.0
