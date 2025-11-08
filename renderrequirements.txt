@@ -1,19 +1,23 @@
-# renderrequirements.txt - Render-ready requirements
+# renderrequirements.txt - Render-ready requirements for Python 3.13+
 Flask==2.3.3
 Flask-CORS==4.0.0
 gunicorn==21.2.0
 
-# Use a torch version available on Render's python environment
+# PyTorch CPU wheel version with cp313 support
 torch==2.9.0
 torchaudio==2.9.0
 
 transformers==4.33.2
 
-librosa==0.10.0
-soundfile==0.12.1
-scipy==1.11.3
-numpy==1.24.3
+# Use SciPy/Numpy releases with Python 3.13 wheel support
+numpy==2.1.0
+scipy==1.14.1
 
+# Audio / signal processing
+librosa==0.10.2
+soundfile==0.12.1
+
+# Computer vision (headless for server)
 opencv-python-headless==4.8.1.78
 Pillow==10.0.1
 
