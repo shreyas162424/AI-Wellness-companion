@@ -12,7 +12,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
-    const backendUrl = process.env.PYTHON_BACKEND_URL || "http://localhost:5000"
+    const backendUrl =process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
     const conf = formData.get("conf") || "0.25"
 
     try {
