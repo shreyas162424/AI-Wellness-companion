@@ -1,111 +1,89 @@
-import { type NextRequest, NextResponse } from "next/server"
-interface AnalysisResponse {
-  success: boolean
-  recording_id: string
-  timestamp: string
-  analysis: {
-    wellness_score: number
-    stress_level: number
-    energy_level: number
-    hydration_level: number
-    emotions: {
-      happy: number
-      calm: number
-      stressed: number
-      tired: number
-      surprised: number
-      neutral: number
-    }
-    primary_emotion: string
-    voice_quality: {
-      clarity: number
-      volume_consistency: number
-      speech_rate: string
-    }
-    health_indicators: {
-      breathing_rate: string
-      voice_tone: string
-      fatigue_detected: boolean
-    }
-  }
-  recommendations: Array<{
-    type: string
-    priority: string
-    message: string
-  }>
-  metadata: {
-    processing_time_ms: number
-    model_version: string
-    confidence_score: number
-  }
-}
-
-export async function POST(request: NextRequest): Promise<NextResponse> {
+// app/api/analyze/route.js
+export async function POST(request) {
   try {
-    const formData = await request.formData()
-
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-
+    // Try to get formData (works in Node runtime). If unavailable, fall back to arrayBuffer.
+    let formData;
     try {
+      formData = await request.formData();
+    } catch {
+      // fallback: build a passthrough body
+      const buf = await request.arrayBuffer();
+      const backendUrl = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000").replace(/\/$/, "");
       const backendResponse = await fetch(`${backendUrl}/infer`, {
         method: "POST",
-        body: formData,
-      })
-
+        body: Buffer.from(buf),
+        headers: { "content-type": request.headers.get("content-type") || "application/octet-stream" }
+      });
       if (!backendResponse.ok) {
-        console.error("[v0] Python backend error:", backendResponse.status)
-        throw new Error(`Backend returned ${backendResponse.status}`)
+        const errText = await safeText(backendResponse);
+        console.error("[v0] Backend error (arrayBuffer fallback):", backendResponse.status, errText);
+        return new Response(JSON.stringify({ success: false, error: "BACKEND_ERROR", details: errText }), { status: backendResponse.status, headers: { "content-type": "application/json" }});
       }
-
-      const analysisResult: AnalysisResponse = await backendResponse.json()
-
-      // Map Python backend response to frontend format
-      const response = {
-        success: analysisResult.success,
-        score: Math.round(analysisResult.analysis.wellness_score),
-        emotion: analysisResult.analysis.primary_emotion.toLowerCase(),
-        stress_level: Math.round(analysisResult.analysis.stress_level),
-        energy_level: Math.round(analysisResult.analysis.energy_level),
-        hydration_level: Math.round(analysisResult.analysis.hydration_level),
-        emotions: analysisResult.analysis.emotions,
-        voice_quality: analysisResult.analysis.voice_quality,
-        health_indicators: analysisResult.analysis.health_indicators,
-        suggestions: analysisResult.recommendations.map((rec) => ({
-          type: rec.type,
-          priority: rec.priority,
-          message: rec.message,
-        })),
-        confidence_score: analysisResult.metadata.confidence_score,
-        processing_time_ms: analysisResult.metadata.processing_time_ms,
-        timestamp: new Date().toISOString(),
-      }
-
-      return NextResponse.json(response)
-    } catch (backendError) {
-      console.error("[v0] Failed to reach Python backend:", backendError)
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Backend unavailable",
-          fallback: true,
-          message: "Python backend is not running. Please ensure app.py is running on localhost:5000",
-        },
-        { status: 503 },
-      )
+      const json = await backendResponse.json();
+      return new Response(JSON.stringify(mapAudioResponse(json)), { status: backendResponse.status, headers: { "content-type": "application/json" }});
     }
-  } catch (error) {
-    console.error("[v0] Analysis API error:", error)
-    return NextResponse.json(
-      { success: false, error: "Failed to process recording", message: String(error) },
-      { status: 500 },
-    )
+
+    const backendUrl = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000").replace(/\/$/, "");
+
+    // Forward formData to backend
+    const backendForm = new FormData();
+    // copy all formData entries (files + simple fields)
+    for (const entry of formData.entries()) {
+      backendForm.append(entry[0], entry[1]);
+    }
+
+    const backendResponse = await fetch(`${backendUrl}/infer`, {
+      method: "POST",
+      body: backendForm
+    });
+
+    if (!backendResponse.ok) {
+      const errBody = await safeParse(backendResponse);
+      console.error("[v0] Python backend error:", backendResponse.status, errBody);
+      return new Response(JSON.stringify({ success: false, error: "BACKEND_ERROR", details: errBody }), { status: backendResponse.status, headers: { "content-type": "application/json" }});
+    }
+
+    const analysisResult = await backendResponse.json();
+    const mapped = mapAudioResponse(analysisResult);
+    return new Response(JSON.stringify(mapped), { status: 200, headers: { "content-type": "application/json" }});
+  } catch (err) {
+    console.error("[v0] Analysis API error:", err);
+    return new Response(JSON.stringify({ success: false, error: "Failed to process recording", message: String(err) }), { status: 500, headers: { "content-type": "application/json" }});
   }
 }
 
-export async function GET(): Promise<NextResponse> {
-  return NextResponse.json({
-    status: "healthy",
-    message: "Analysis API is running",
-    note: "Send audio file via POST to /api/analyze",
-  })
+export async function GET() {
+  return new Response(JSON.stringify({ status: "healthy", message: "Analysis API is running", note: "POST audio as multipart/form-data to this route" }), { status: 200, headers: { "content-type": "application/json" }});
+}
+
+/* Helpers */
+function mapAudioResponse(analysisResult = {}) {
+  try {
+    const analysis = analysisResult.analysis || {};
+    const metadata = analysisResult.metadata || {};
+    return {
+      success: !!analysisResult.success,
+      score: Math.round(analysis.wellness_score ?? 0),
+      emotion: (analysis.primary_emotion || "neutral").toLowerCase(),
+      stress_level: Math.round(analysis.stress_level ?? 0),
+      energy_level: Math.round(analysis.energy_level ?? 0),
+      hydration_level: Math.round(analysis.hydration_level ?? 0),
+      emotions: analysis.emotions || {},
+      voice_quality: analysis.voice_quality || {},
+      health_indicators: analysis.health_indicators || {},
+      suggestions: (analysisResult.recommendations || []).map(r => ({ type: r.type, priority: r.priority, message: r.message })),
+      confidence_score: metadata.confidence_score ?? 0,
+      processing_time_ms: metadata.processing_time_ms ?? 0,
+      timestamp: new Date().toISOString()
+    };
+  } catch (e) {
+    return { success: false, error: "MAPPING_FAILED", message: String(e) };
+  }
+}
+
+async function safeParse(resp) {
+  try { return await resp.json(); } catch { return await safeText(resp); }
+}
+async function safeText(resp) {
+  try { return await resp.text(); } catch { return null; }
 }
