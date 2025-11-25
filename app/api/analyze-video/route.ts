@@ -46,7 +46,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const formData = await request.formData()
 
-    const backendUrl = process.env.PYTHON_BACKEND_URL || "http://localhost:5000"
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
     try {
       const backendResponse = await fetch(`${backendUrl}/infer_video`, {
