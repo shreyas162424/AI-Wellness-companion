@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-
+const BACKEND = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 interface AnalysisResponse {
   success: boolean
   recording_id: string
