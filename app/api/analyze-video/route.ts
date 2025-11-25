@@ -1,127 +1,89 @@
-import { type NextRequest, NextResponse } from "next/server"
-
-interface VideoAnalysisResponse {
-  success: boolean
-  recording_id: string
-  timestamp: string
-  analysis: {
-    video_analysis: {
-      duration: number
-      fps: number
-      total_frames: number
-      processed_frames: number
-      detected_objects: Record<string, any>
-      frame_detections: Array<any>
-    }
-    audio_analysis?: {
-      wellness_score: number
-      stress_level: number
-      energy_level: number
-      hydration_level: number
-      emotions: Record<string, number>
-      primary_emotion: string
-      voice_quality: any
-      health_indicators: any
-    }
-    wellness_score: number
-    stress_level: number
-    energy_level: number
-    emotions: Record<string, number>
-    primary_emotion: string
-  }
-  recommendations: Array<{
-    type: string
-    priority: string
-    message: string
-  }>
-  metadata: {
-    processing_time_ms: number
-    model_version: string
-    video_model: string
-    audio_model?: string
-  }
-}
-
-export async function POST(request: NextRequest): Promise<NextResponse> {
+// app/api/analyze-video/route.js
+export async function POST(request) {
   try {
-    const formData = await request.formData()
-
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-
+    let formData;
     try {
+      formData = await request.formData();
+    } catch {
+      // fallback to arrayBuffer passthrough
+      const buf = await request.arrayBuffer();
+      const backendUrl = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000").replace(/\/$/, "");
       const backendResponse = await fetch(`${backendUrl}/infer_video`, {
         method: "POST",
-        body: formData,
-      })
-
+        body: Buffer.from(buf),
+        headers: { "content-type": request.headers.get("content-type") || "application/octet-stream" }
+      });
       if (!backendResponse.ok) {
-        console.error("[v0] Python backend error:", backendResponse.status)
-        throw new Error(`Backend returned ${backendResponse.status}`)
+        const err = await safeParse(backendResponse);
+        console.error("[v0] Backend error (video arrayBuffer fallback):", backendResponse.status, err);
+        return new Response(JSON.stringify({ success: false, error: "BACKEND_ERROR", details: err }), { status: backendResponse.status, headers: { "content-type": "application/json" }});
       }
-
-      const analysisResult: VideoAnalysisResponse = await backendResponse.json()
-
-      if (!analysisResult.success) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: analysisResult.error || "Video processing failed",
-            message: analysisResult.message || "Could not process video",
-          },
-          { status: 400 }
-        )
-      }
-
-      // Map Python backend response to frontend format
-      const response = {
-        success: analysisResult.success,
-        score: Math.round(analysisResult.analysis.wellness_score || 70),
-        emotion: analysisResult.analysis.primary_emotion?.toLowerCase() || "neutral",
-        stress_level: Math.round(analysisResult.analysis.stress_level || 30),
-        energy_level: Math.round(analysisResult.analysis.energy_level || 60),
-        hydration_level: analysisResult.analysis.audio_analysis?.hydration_level || 55,
-        emotions: analysisResult.analysis.emotions || {},
-        video_analysis: analysisResult.analysis.video_analysis,
-        audio_analysis: analysisResult.analysis.audio_analysis,
-        voice_quality: analysisResult.analysis.audio_analysis?.voice_quality,
-        health_indicators: analysisResult.analysis.audio_analysis?.health_indicators,
-        suggestions: analysisResult.recommendations?.map((rec) => ({
-          type: rec.type,
-          priority: rec.priority,
-          message: rec.message,
-        })) || [],
-        confidence_score: analysisResult.metadata.confidence_score || 0,
-        processing_time_ms: analysisResult.metadata.processing_time_ms,
-        timestamp: new Date().toISOString(),
-      }
-
-      return NextResponse.json(response)
-    } catch (backendError) {
-      console.error("[v0] Failed to reach Python backend:", backendError)
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Backend unavailable",
-          fallback: true,
-          message: "Python backend is not running. Please ensure FVATool.py is running on localhost:5000",
-        },
-        { status: 503 }
-      )
+      const json = await backendResponse.json();
+      return new Response(JSON.stringify(mapVideoResponse(json)), { status: 200, headers: { "content-type": "application/json" }});
     }
-  } catch (error) {
-    console.error("[v0] Video Analysis API error:", error)
-    return NextResponse.json(
-      { success: false, error: "Failed to process video", message: String(error) },
-      { status: 500 }
-    )
+
+    const backendUrl = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000").replace(/\/$/, "");
+    const backendForm = new FormData();
+    for (const entry of formData.entries()) backendForm.append(entry[0], entry[1]);
+
+    const backendResponse = await fetch(`${backendUrl}/infer_video`, {
+      method: "POST",
+      body: backendForm
+    });
+
+    if (!backendResponse.ok) {
+      const errBody = await safeParse(backendResponse);
+      console.error("[v0] Python backend error:", backendResponse.status, errBody);
+      return new Response(JSON.stringify({ success: false, error: "BACKEND_ERROR", details: errBody }), { status: backendResponse.status, headers: { "content-type": "application/json" }});
+    }
+
+    const analysisResult = await backendResponse.json();
+    if (!analysisResult.success) {
+      return new Response(JSON.stringify({ success: false, error: analysisResult.error || "Video processing failed", message: analysisResult.message || "" }), { status: 400, headers: { "content-type": "application/json" }});
+    }
+
+    const mapped = mapVideoResponse(analysisResult);
+    return new Response(JSON.stringify(mapped), { status: 200, headers: { "content-type": "application/json" }});
+  } catch (err) {
+    console.error("[v0] Video Analysis API error:", err);
+    return new Response(JSON.stringify({ success: false, error: "Failed to process video", message: String(err) }), { status: 500, headers: { "content-type": "application/json" }});
   }
 }
 
-export async function GET(): Promise<NextResponse> {
-  return NextResponse.json({
-    status: "healthy",
-    message: "Video Analysis API is running",
-    note: "Send video file via POST to /api/analyze-video",
-  })
+export async function GET() {
+  return new Response(JSON.stringify({ status: "healthy", message: "Video Analysis API is running", note: "POST video as multipart/form-data to this route" }), { status: 200, headers: { "content-type": "application/json" }});
 }
 
+/* Helpers */
+function mapVideoResponse(analysisResult = {}) {
+  try {
+    const analysis = analysisResult.analysis || {};
+    const metadata = analysisResult.metadata || {};
+    return {
+      success: !!analysisResult.success,
+      score: Math.round(analysis.wellness_score ?? analysis.audio_analysis?.wellness_score ?? 0),
+      emotion: (analysis.primary_emotion || "neutral").toLowerCase(),
+      stress_level: Math.round(analysis.stress_level ?? 0),
+      energy_level: Math.round(analysis.energy_level ?? 0),
+      hydration_level: analysis.audio_analysis?.hydration_level ?? 55,
+      emotions: analysis.emotions || analysis.audio_analysis?.emotions || {},
+      video_analysis: analysis.video_analysis || {},
+      audio_analysis: analysis.audio_analysis || null,
+      voice_quality: analysis.audio_analysis?.voice_quality || {},
+      health_indicators: analysis.audio_analysis?.health_indicators || {},
+      suggestions: (analysisResult.recommendations || []).map(r => ({ type: r.type, priority: r.priority, message: r.message })),
+      confidence_score: metadata.confidence_score ?? 0,
+      processing_time_ms: metadata.processing_time_ms ?? 0,
+      timestamp: new Date().toISOString()
+    };
+  } catch (e) {
+    return { success: false, error: "MAPPING_FAILED", message: String(e) };
+  }
+}
+
+async function safeParse(resp) {
+  try { return await resp.json(); } catch { return await safeText(resp); }
+}
+async function safeText(resp) {
+  try { return await resp.text(); } catch { return null; }
+}
